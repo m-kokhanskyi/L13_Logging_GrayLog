@@ -1,11 +1,13 @@
 version: "3.8"
+
 services:
   mongodb:
     image: "mongo:5.0"
     volumes:
       - "mongodb_data:/data/db"
     restart: "on-failure"
-
+    networks:
+    - graylog
   elasticsearch:
     environment:
       ES_JAVA_OPTS: "-Xms1g -Xmx1g -Dlog4j2.formatMsgNoLookups=true"
@@ -21,9 +23,10 @@ services:
     volumes:
       - "es_data:/usr/share/elasticsearch/data"
     restart: "on-failure"
-
+    networks:
+    - graylog
   graylog:
-    image: "${GRAYLOG_IMAGE:-graylog/graylog-enterprise:4.3}"
+    image: "${GRAYLOG_IMAGE:-graylog/graylog:4.3}"
     depends_on:
       elasticsearch:
         condition: "service_started"
@@ -38,12 +41,10 @@ services:
       GRAYLOG_HTTP_EXTERNAL_URI: "http://localhost:9000/"
       GRAYLOG_ELASTICSEARCH_HOSTS: "http://elasticsearch:9200"
       GRAYLOG_MONGODB_URI: "mongodb://mongodb:27017/graylog"
-      # To make reporting (headless_shell) work inside a Docker container
-      GRAYLOG_REPORT_DISABLE_SANDBOX: "true"
     ports:
     - "5044:5044/tcp"   # Beats
-    - "5140:5140/tcp"   # Syslog TCP
-    - "5140:5140/udp"   # Syslog UDP
+    - "5140:5140/udp"   # Syslog
+    - "5140:5140/tcp"   # Syslog
     - "5555:5555/tcp"   # RAW TCP
     - "5555:5555/udp"   # RAW TCP
     - "9000:9000/tcp"   # Server API
@@ -57,6 +58,48 @@ services:
       - "graylog_data:/usr/share/graylog/data/data"
       - "graylog_journal:/usr/share/graylog/data/journal"
     restart: "on-failure"
+    networks:
+    - graylog
+  mysql_l13:
+      image:   mysql:latest
+      restart: always
+      command: --default-authentication-plugin=mysql_native_password 	--slow-query-log=1 --slow-query-log-file=/var/log/mysql/slow-query.log
+      volumes:
+      - ./mysql/log/:/var/log/mysql
+      cap_add:
+      - SYS_NICE  # CAP_SYS_NICE
+      environment:
+      - "MYSQL_DATABASE=mysql_l13"
+      - "MYSQL_USER=mysql_l13"
+      - "MYSQL_PASSWORD=secret"
+      - "MYSQL_ROOT_PASSWORD=root"
+      - "MYSQL_ROOT_HOST:'%'"
+      ports:
+      - '3242:3306'
+      networks:
+      - graylog
+  filebeat:
+    build:
+      context: filebeat/
+    user: root
+    command:
+    - -e
+    - --strict.perms=false
+    volumes:
+    - ./filebeat/config/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro,Z
+    - type:      bind
+      source:    ./mysql/log/
+      target:    /var/log/mysql
+      read_only: true
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-}
+    depends_on:
+      - graylog
+    networks:
+    - graylog
+networks:
+  graylog:
+    driver: bridge
 volumes:
   mongodb_data:
   es_data:

@@ -1,0 +1,23 @@
+filebeat.inputs:
+- type: log
+  enabled: false
+  paths:
+  - /var/log/*.log
+#============================= Filebeat modules ===============================
+
+filebeat.config.modules:
+  # Glob pattern for configuration loading
+  path: ${path.config}/modules.d/*.yml
+  reload.enabled: true
+  reload.period: 1s
+
+filebeat.modules:
+- module: mysql
+  slowlog:
+    enabled: true
+    var.paths: [ "/var/log/mysql/slow-query.log" ]
+
+#----------------------------- Logstash output --------------------------------
+output.logstash:
+  # The Logstash hosts
+  hosts: ["host.docker.internal:5044"]
